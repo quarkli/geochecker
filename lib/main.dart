@@ -123,8 +123,8 @@ class _MyHomePageState extends State<MyHomePage> {
             timestamp: event.timestamp,
             accuracy: event.accuracy,
             altitude: event.altitude,
-            heading: heading,
-            speed: speed,
+            heading: heading < 0 && speed < 0 ? 0 : (heading + 360) % 360,
+            speed: speed < 0 ? 0 : speed,
             speedAccuracy: event.accuracy,
             floor: event.floor,
             isMocked: event.isMocked);
@@ -134,6 +134,9 @@ class _MyHomePageState extends State<MyHomePage> {
     } else {
       _streamSubscription?.cancel();
       _position = null;
+      _replace = false;
+      _movingDistance = 0;
+      _accuracyWorse = false;
     }
 
     setState(() {});
