@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:intl/intl.dart';
 
 void main() {
   runApp(const MyApp());
@@ -66,8 +67,9 @@ class _MyHomePageState extends State<MyHomePage> {
         double heading = event.heading;
 
         // 人工的に速度や方位を計算するため、前回の位置情報が必要です。
-        //　精度を確認して、前の精度より高くの値で、精度悪くなった時、人工計算で修正する
-        if (_position != null && event.accuracy > _position!.accuracy) {
+        //　精度を確認して、前の精度より高くの値で(Android)、また速度はマイナス(iOS)、精度悪くなった時、人工計算で修正する
+        if (_position != null &&
+            (event.accuracy > _position!.accuracy || event.speed < 0)) {
           // 新しい位置と前回の位置の距離
           var distance = Geolocator.distanceBetween(_position!.latitude,
               _position!.longitude, event.latitude, event.longitude);
@@ -119,6 +121,7 @@ class _MyHomePageState extends State<MyHomePage> {
       });
     } else {
       _streamSubscription?.cancel();
+      _position = null;
     }
 
     setState(() {});
@@ -151,15 +154,15 @@ class _MyHomePageState extends State<MyHomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Text(
-              'Latitude: ${_position?.latitude ?? 0}',
+              'Latitude: ${_position?.latitude.toStringAsFixed(4) ?? 0}',
               style: Theme.of(context).textTheme.headline5,
             ),
             Text(
-              'Logitude: ${_position?.longitude ?? 0}',
+              'Logitude: ${_position?.longitude.toStringAsFixed(4) ?? 0}',
               style: Theme.of(context).textTheme.headline5,
             ),
             Text(
-              'Accuracy: ${_position?.accuracy.floor() ?? 0} m',
+              'Accuracy: ${_position?.accuracy.toStringAsFixed(2) ?? 0} m',
               style: Theme.of(context).textTheme.headline5,
             ),
             Text(
@@ -167,7 +170,7 @@ class _MyHomePageState extends State<MyHomePage> {
               style: Theme.of(context).textTheme.headline5,
             ),
             Text(
-              'Spead Accuracy: ${_position?.speedAccuracy ?? 0}',
+              'Spead Accuracy: ${_position?.speedAccuracy.toStringAsFixed(2) ?? 0}',
               style: Theme.of(context).textTheme.headline5,
             ),
             Text(
@@ -175,7 +178,7 @@ class _MyHomePageState extends State<MyHomePage> {
               style: Theme.of(context).textTheme.headline5,
             ),
             Text(
-              'Update Time: ${(_position?.timestamp?.hour ?? 0) + 9}:${_position?.timestamp?.minute ?? 0}:${_position?.timestamp?.second ?? 0}',
+              'Update Time: ${DateFormat("HH:mm:ss").format(_position?.timestamp?.toLocal() ?? DateTime.now())}',
               style: Theme.of(context).textTheme.headline5,
             ),
           ],
