@@ -17,15 +17,6 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'GeoChecker',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // Try running your application with "flutter run". You'll see the
-        // application has a blue toolbar. Then, without quitting the app, try
-        // changing the primarySwatch below to Colors.green and then invoke
-        // "hot reload" (press "r" in the console where you ran "flutter run",
-        // or simply save your changes to "hot reload" in a Flutter IDE).
-        // Notice that the counter didn't reset back to zero; the application
-        // is not restarted.
         primarySwatch: Colors.blue,
       ),
       home: const MyHomePage(title: 'GeoChecker'),
@@ -36,15 +27,6 @@ class MyApp extends StatelessWidget {
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
   final String title;
 
   @override
@@ -53,7 +35,6 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   bool _usePlatformInstance = false;
-  bool _replaceSpeed = false;
   Position? _position;
   bool _serviceEnabled = false;
   LocationSettings? _locationSettings;
@@ -80,18 +61,60 @@ class _MyHomePageState extends State<MyHomePage> {
         print(error);
       }).listen((event) {
         print(event.toJson());
-        if (_replaceSpeed &&
-            _position != null &&
-            (event.speed < 0 || event.heading < 0)) {
-          double second = _calcDurationInSec(_position!, event);
-          if (second < 1) {
-            return;
+        // 人工的に速度と方位を修正計算結果
+        double speed = event.speed;
+        double heading = event.heading;
+
+        // 人工的に速度や方位を計算するため、前回の位置情報が必要です。
+        //　精度を確認して、前の精度より高くの値で、精度悪くなった時、人工計算で修正する
+        if (_position != null && event.accuracy > _position!.accuracy) {
+          // 新しい位置と前回の位置の距離
+          var distance = Geolocator.distanceBetween(_position!.latitude,
+              _position!.longitude, event.latitude, event.longitude);
+
+          // 精度悪くなった時、移動距離10m不満、位置情報更新されない
+          if (distance < event.accuracy || distance < 10) {
+            speed = _position!.speed;
+            heading = _position!.heading;
+            print(
+                'GPS signal might be lost, but moving distance is within accracy range, using artificial speed ($speed) and heading ($heading) from last time instead.');
           } else {
-            _position = _replacedPosition(_position!, event);
+            // 新しい位置と前回の位置の経過時間
+            var movingTimeInSeconds = event.timestamp!
+                    .difference(_position!.timestamp!)
+                    .inMilliseconds /
+                Duration.millisecondsPerSecond;
+
+            // 速度を計算する
+            speed = distance / movingTimeInSeconds * 3.6;
+
+            // 方位を計算する
+            heading = Geolocator.bearingBetween(_position!.latitude,
+                _position!.longitude, event.latitude, event.longitude);
+
+            // 計算結果を確認し、不合理の結果を捨てて
+            if (speed > _position!.speed) {
+              speed = _position!.speed;
+              heading = _position!.heading;
+            }
+
+            print(
+                'GPS signal might be lost, using artificial calculation speed ($speed) and heading ($heading) instead.');
           }
-        } else {
-          _position = event;
         }
+
+        _position = Position(
+            longitude: event.longitude,
+            latitude: event.latitude,
+            timestamp: event.timestamp,
+            accuracy: event.accuracy,
+            altitude: event.altitude,
+            heading: heading,
+            speed: speed,
+            speedAccuracy: event.accuracy,
+            floor: event.floor,
+            isMocked: event.isMocked);
+
         setState(() {});
       });
     } else {
@@ -103,24 +126,9 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
-        leading: Switch(
-            value: _replaceSpeed,
-            onChanged: ((value) {
-              setState(() {
-                _replaceSpeed = value;
-              });
-            })),
         actions: [
           Switch(
               value: _usePlatformInstance,
@@ -136,25 +144,10 @@ class _MyHomePageState extends State<MyHomePage> {
               })
         ],
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
+      body: Container(
+        padding: const EdgeInsets.all(20),
         child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Invoke "debug painting" (press "p" in the console, choose the
-          // "Toggle Debug Paint" action from the Flutter Inspector in Android
-          // Studio, or the "Toggle Debug Paint" command in Visual Studio Code)
-          // to see the wireframe for each widget.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Text(
@@ -170,7 +163,7 @@ class _MyHomePageState extends State<MyHomePage> {
               style: Theme.of(context).textTheme.headline5,
             ),
             Text(
-              'Speed: ${((_position?.speed ?? 0) * 3.6).floor() ?? 0} Km',
+              'Speed: ${((_position?.speed ?? 0) * 3.6).floor()} Km',
               style: Theme.of(context).textTheme.headline5,
             ),
             Text(
@@ -237,54 +230,5 @@ class _MyHomePageState extends State<MyHomePage> {
       }
     }
     return true;
-  }
-
-  static Position _replacedPosition(Position last, Position current) {
-    double second = _calcDurationInSec(last, current);
-    double speed;
-    if (current.speed < 0) {
-      // 短期間に連続する場合は単純算出で1000km/hを超える値となるため制限
-      speed = second > 3 ? _calcSpeed(last, current) : last.speed;
-    } else {
-      speed = current.speed;
-    }
-
-    double heading =
-        current.heading < 0 ? _calcHeading(last, current) : current.heading;
-    return Position(
-        longitude: current.longitude,
-        latitude: current.latitude,
-        timestamp: current.timestamp,
-        accuracy: current.accuracy,
-        altitude: current.altitude,
-        heading: heading,
-        speed: speed,
-        speedAccuracy: current.speedAccuracy,
-        floor: current.floor,
-        isMocked: current.isMocked);
-  }
-
-  static double _calcDurationInSec(Position start, Position end) {
-    DateTime? from = start.timestamp;
-    DateTime? to = end.timestamp;
-    if (from != null && to != null) {
-      int microSec = to.difference(from).inMicroseconds.abs();
-      return microSec.toDouble() / Duration.microsecondsPerSecond;
-    }
-
-    return 0;
-  }
-
-  static double _calcSpeed(Position start, Position end) {
-    double second = _calcDurationInSec(start, end);
-    double meter = Geolocator.distanceBetween(
-        start.latitude, start.longitude, end.latitude, end.longitude);
-    return second > 0 ? meter.abs() / second : 0;
-  }
-
-  static double _calcHeading(Position start, Position end) {
-    double bearing = Geolocator.bearingBetween(
-        start.latitude, start.longitude, end.latitude, end.longitude);
-    return bearing < 0 ? bearing + 360 : bearing;
   }
 }
