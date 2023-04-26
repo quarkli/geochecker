@@ -35,11 +35,14 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  bool _usePlatformInstance = false;
+  bool _usePlatformInstance = true;
   Position? _position;
   bool _serviceEnabled = false;
   LocationSettings? _locationSettings;
   StreamSubscription<Position>? _streamSubscription;
+  bool _replace = false;
+  bool _accuracyWorse = false;
+  double _movingDistance = 0;
 
   @override
   void initState() {
@@ -62,14 +65,22 @@ class _MyHomePageState extends State<MyHomePage> {
         print(error);
       }).listen((event) {
         print(event.toJson());
+        _accuracyWorse = false;
         // 人工的に速度と方位を修正計算結果
         double speed = event.speed;
         double heading = event.heading;
+        _replace = false;
+
+        if (_position != null) {
+          _movingDistance = Geolocator.distanceBetween(_position!.latitude,
+              _position!.longitude, event.latitude, event.longitude);
+        }
 
         // 人工的に速度や方位を計算するため、前回の位置情報が必要です。
         //　精度を確認して、前の精度より高くの値で(Android)、また速度はマイナス(iOS)、精度悪くなった時、人工計算で修正する
         if (_position != null &&
             (event.accuracy > _position!.accuracy || event.speed < 0)) {
+          _accuracyWorse = true;
           // 新しい位置と前回の位置の距離
           var distance = Geolocator.distanceBetween(_position!.latitude,
               _position!.longitude, event.latitude, event.longitude);
@@ -103,6 +114,7 @@ class _MyHomePageState extends State<MyHomePage> {
             print(
                 'GPS signal might be lost, using artificial calculation speed ($speed) and heading ($heading) instead.');
           }
+          _replace = true;
         }
 
         _position = Position(
@@ -151,35 +163,84 @@ class _MyHomePageState extends State<MyHomePage> {
         padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.start,
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: <Widget>[
-            Text(
-              'Latitude: ${_position?.latitude.toStringAsFixed(4) ?? 0}',
-              style: Theme.of(context).textTheme.headline5,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                Text(
+                  'Latitude',
+                  style: Theme.of(context)
+                      .textTheme
+                      .headline5
+                      ?.copyWith(color: Colors.black54),
+                ),
+                Text(
+                  'Logitude:',
+                  style: Theme.of(context)
+                      .textTheme
+                      .headline5
+                      ?.copyWith(color: Colors.black54),
+                ),
+              ],
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                Text(
+                  '${_position?.latitude.toStringAsFixed(7) ?? 0}',
+                  style: Theme.of(context)
+                      .textTheme
+                      .headline5
+                      ?.copyWith(color: Colors.black54),
+                ),
+                Text(
+                  '${_position?.longitude.toStringAsFixed(7) ?? 0}',
+                  style: Theme.of(context)
+                      .textTheme
+                      .headline5
+                      ?.copyWith(color: Colors.black54),
+                ),
+              ],
             ),
             Text(
-              'Logitude: ${_position?.longitude.toStringAsFixed(4) ?? 0}',
-              style: Theme.of(context).textTheme.headline5,
+              'Moving distance: ${_movingDistance.round()} m',
+              style: Theme.of(context).textTheme.headline6?.copyWith(
+                  color: _movingDistance < 100 ? Colors.black54 : Colors.red),
             ),
-            Text(
-              'Accuracy: ${_position?.accuracy.toStringAsFixed(2) ?? 0} m',
-              style: Theme.of(context).textTheme.headline5,
+            const SizedBox(
+              height: 10,
             ),
             Text(
               'Speed: ${((_position?.speed ?? 0) * 3.6).floor()} Km',
-              style: Theme.of(context).textTheme.headline5,
-            ),
-            Text(
-              'Spead Accuracy: ${_position?.speedAccuracy.toStringAsFixed(2) ?? 0}',
-              style: Theme.of(context).textTheme.headline5,
+              style: Theme.of(context)
+                  .textTheme
+                  .headline4
+                  ?.copyWith(color: _replace ? Colors.red : Colors.blue),
             ),
             Text(
               'Heading: ${_position?.heading.floor() ?? 0}',
-              style: Theme.of(context).textTheme.headline5,
+              style: Theme.of(context)
+                  .textTheme
+                  .headline4
+                  ?.copyWith(color: _replace ? Colors.red : Colors.blue),
+            ),
+            const SizedBox(
+              height: 10,
+            ),
+            Text(
+              'Accuracy: ${_position?.accuracy.toStringAsFixed(2) ?? 0} m',
+              style: Theme.of(context)
+                  .textTheme
+                  .headline5
+                  ?.copyWith(color: _accuracyWorse ? Colors.red : Colors.green),
             ),
             Text(
               'Update Time: ${DateFormat("HH:mm:ss").format(_position?.timestamp?.toLocal() ?? DateTime.now())}',
-              style: Theme.of(context).textTheme.headline5,
+              style: Theme.of(context)
+                  .textTheme
+                  .headline6
+                  ?.copyWith(color: Colors.black26),
             ),
           ],
         ),
