@@ -1,10 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
+import 'package:http/http.dart' as http;
 
+const geocodeUrl = 'https://api.mapbox.com/geocoding/v5/mapbox.places';
+const trailerStr = '.json?access_token=';
 void main() {
   runApp(const MyApp());
 }
@@ -43,6 +48,8 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _replace = false;
   bool _accuracyWorse = false;
   double _movingDistance = 0;
+  String _location = '';
+  bool _geoDecoder = false;
 
   @override
   void initState() {
@@ -63,13 +70,29 @@ class _MyHomePageState extends State<MyHomePage> {
           : Geolocator.getPositionStream(locationSettings: _locationSettings);
       _streamSubscription = positionStream.handleError((error) {
         print(error);
-      }).listen((event) {
+      }).listen((event) async {
         print(event.toJson());
         _accuracyWorse = false;
         // 人工的に速度と方位を修正計算結果
         double speed = event.speed;
         double heading = event.heading;
         _replace = false;
+
+        if (_geoDecoder) {
+          final response = await http.get(Uri.parse(
+              '$geocodeUrl/${event.longitude},${event.latitude}$trailerStr'));
+
+          if (response.statusCode == 200) {
+            try {
+              var geodata = jsonDecode(response.body);
+              if (defaultTargetPlatform == TargetPlatform.iOS) {
+                _location = geodata['features'][0]['properties']['address'];
+              } else {
+                _location = geodata['features'][0]['text'];
+              }
+            } catch (_) {}
+          }
+        }
 
         if (_position != null) {
           _movingDistance = Geolocator.distanceBetween(_position!.latitude,
@@ -137,6 +160,7 @@ class _MyHomePageState extends State<MyHomePage> {
       _replace = false;
       _movingDistance = 0;
       _accuracyWorse = false;
+      _location = '';
     }
 
     setState(() {});
@@ -147,6 +171,13 @@ class _MyHomePageState extends State<MyHomePage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
+        leading: Switch(
+            value: _geoDecoder,
+            onChanged: ((value) {
+              setState(() {
+                _geoDecoder = value;
+              });
+            })),
         actions: [
           Switch(
               value: _usePlatformInstance,
@@ -207,9 +238,11 @@ class _MyHomePageState extends State<MyHomePage> {
               ],
             ),
             Text(
-              'Moving distance: ${_movingDistance.round()} m',
-              style: Theme.of(context).textTheme.headline6?.copyWith(
-                  color: _movingDistance < 100 ? Colors.black54 : Colors.red),
+              _location.isEmpty ? '' : '$_location付近',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: Colors.black45),
             ),
             const SizedBox(
               height: 10,
@@ -221,12 +254,38 @@ class _MyHomePageState extends State<MyHomePage> {
                   .headline4
                   ?.copyWith(color: _replace ? Colors.red : Colors.blue),
             ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'Heading: ',
+                  style: Theme.of(context)
+                      .textTheme
+                      .headline4
+                      ?.copyWith(color: _replace ? Colors.red : Colors.blue),
+                ),
+                Transform.rotate(
+                  angle: (_position?.heading ?? 0) * pi / 180,
+                  child: SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: IconButton(
+                      padding: const EdgeInsets.all(0.0),
+                      icon: Icon(
+                        Icons.navigation,
+                        color: _replace ? Colors.red : Colors.blue,
+                        size: 36,
+                      ),
+                      onPressed: null,
+                    ),
+                  ),
+                ),
+              ],
+            ),
             Text(
-              'Heading: ${_position?.heading.floor() ?? 0}',
-              style: Theme.of(context)
-                  .textTheme
-                  .headline4
-                  ?.copyWith(color: _replace ? Colors.red : Colors.blue),
+              'Moving distance: ${_movingDistance.round()} m',
+              style: Theme.of(context).textTheme.headline6?.copyWith(
+                  color: _movingDistance < 100 ? Colors.black54 : Colors.red),
             ),
             const SizedBox(
               height: 10,
@@ -239,7 +298,7 @@ class _MyHomePageState extends State<MyHomePage> {
                   ?.copyWith(color: _accuracyWorse ? Colors.red : Colors.green),
             ),
             Text(
-              'Update Time: ${DateFormat("HH:mm:ss").format(_position?.timestamp?.toLocal() ?? DateTime.now())}',
+              'Update Time: ${DateFormat("HH:mm:ss").format(_position?.timestamp?.toLocal() ?? DateTime(0))}',
               style: Theme.of(context)
                   .textTheme
                   .headline6
