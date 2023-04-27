@@ -46,10 +46,11 @@ class _MyHomePageState extends State<MyHomePage> {
   LocationSettings? _locationSettings;
   StreamSubscription<Position>? _streamSubscription;
   bool _replace = false;
-  bool _accuracyWorse = false;
+  double _oldAccuracy = 0;
   double _movingDistance = 0;
   String _location = '';
-  bool _geoDecoder = false;
+  bool _geoDecoder = true;
+  Position? _lastKnownPosition;
 
   @override
   void initState() {
@@ -72,7 +73,12 @@ class _MyHomePageState extends State<MyHomePage> {
         print(error);
       }).listen((event) async {
         print(event.toJson());
-        _accuracyWorse = false;
+
+        if (_position != null &&
+            event.accuracy < 10 &&
+            event.accuracy <= _position!.accuracy) {
+          _lastKnownPosition = event;
+        }
         // 人工的に速度と方位を修正計算結果
         double speed = event.speed;
         double heading = event.heading;
@@ -85,58 +91,62 @@ class _MyHomePageState extends State<MyHomePage> {
           if (response.statusCode == 200) {
             try {
               var geodata = jsonDecode(response.body);
-              if (defaultTargetPlatform == TargetPlatform.iOS) {
-                _location = geodata['features'][0]['properties']['address'];
-              } else {
+              print(geodata);
+              _location = geodata['features'][0]['properties']['address'];
+            } catch (_) {
+              try {
+                var geodata = jsonDecode(response.body);
                 _location = geodata['features'][0]['text'];
-              }
-            } catch (_) {}
+              } catch (_) {}
+            }
           }
         }
 
         if (_position != null) {
           _movingDistance = Geolocator.distanceBetween(_position!.latitude,
               _position!.longitude, event.latitude, event.longitude);
+          _oldAccuracy = _position!.accuracy;
         }
 
         // 人工的に速度や方位を計算するため、前回の位置情報が必要です。
         //　精度を確認して、前の精度より高くの値で(Android)、また速度はマイナス(iOS)、精度悪くなった時、人工計算で修正する
-        if (_position != null &&
-            (event.accuracy > _position!.accuracy || event.speed < 0)) {
-          _accuracyWorse = true;
+        if (_lastKnownPosition != null &&
+            event.accuracy > _lastKnownPosition!.accuracy &&
+            event.speed <= 0) {
           // 新しい位置と前回の位置の距離
-          var distance = Geolocator.distanceBetween(_position!.latitude,
-              _position!.longitude, event.latitude, event.longitude);
+          var distance = Geolocator.distanceBetween(
+              _lastKnownPosition!.latitude,
+              _lastKnownPosition!.longitude,
+              event.latitude,
+              event.longitude);
 
-          // 精度悪くなった時、移動距離10m不満、位置情報更新されない
-          if (distance < event.accuracy || distance < 10) {
-            speed = _position!.speed;
-            heading = _position!.heading;
-            print(
-                'GPS signal might be lost, but moving distance is within accracy range, using artificial speed ($speed) and heading ($heading) from last time instead.');
-          } else {
-            // 新しい位置と前回の位置の経過時間
-            var movingTimeInSeconds = event.timestamp!
-                    .difference(_position!.timestamp!)
-                    .inMilliseconds /
-                Duration.millisecondsPerSecond;
+          distance = distance > event.accuracy ? distance : event.accuracy;
+          // 新しい位置と前回の位置の経過時間
+          var movingTimeInSeconds = event.timestamp!
+                  .difference(_lastKnownPosition!.timestamp!)
+                  .inMilliseconds /
+              Duration.millisecondsPerSecond;
 
-            // 速度を計算する
-            speed = distance / movingTimeInSeconds * 3.6;
+          // 速度を計算する
+          speed = distance / movingTimeInSeconds * 3.6;
 
-            // 方位を計算する
-            heading = Geolocator.bearingBetween(_position!.latitude,
-                _position!.longitude, event.latitude, event.longitude);
+          // 方位を計算する
+          heading = Geolocator.bearingBetween(_lastKnownPosition!.latitude,
+              _lastKnownPosition!.longitude, event.latitude, event.longitude);
 
-            // 計算結果を確認し、不合理の結果を捨てて
-            if (speed > _position!.speed) {
-              speed = _position!.speed;
-              heading = _position!.heading;
-            }
-
-            print(
-                'GPS signal might be lost, using artificial calculation speed ($speed) and heading ($heading) instead.');
+          // 計算結果を確認し、不合理の結果を捨てて
+          if (speed > _lastKnownPosition!.speed) {
+            speed = _lastKnownPosition!.speed;
+            heading = _lastKnownPosition!.heading;
           }
+
+          print(
+              'GPS signal might be lost, using artificial calculation speed ($speed) and heading ($heading) instead.');
+
+          _replace = true;
+        }
+
+        if (speed < 0) {
           _replace = true;
         }
 
@@ -159,7 +169,6 @@ class _MyHomePageState extends State<MyHomePage> {
       _position = null;
       _replace = false;
       _movingDistance = 0;
-      _accuracyWorse = false;
       _location = '';
     }
 
@@ -170,6 +179,7 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        centerTitle: true,
         title: Text(widget.title),
         leading: Switch(
             value: _geoDecoder,
@@ -225,14 +235,14 @@ class _MyHomePageState extends State<MyHomePage> {
                   '${_position?.latitude.toStringAsFixed(7) ?? 0}',
                   style: Theme.of(context)
                       .textTheme
-                      .headline5
+                      .headline6
                       ?.copyWith(color: Colors.black54),
                 ),
                 Text(
                   '${_position?.longitude.toStringAsFixed(7) ?? 0}',
                   style: Theme.of(context)
                       .textTheme
-                      .headline5
+                      .headline6
                       ?.copyWith(color: Colors.black54),
                 ),
               ],
@@ -291,11 +301,11 @@ class _MyHomePageState extends State<MyHomePage> {
               height: 10,
             ),
             Text(
-              'Accuracy: ${_position?.accuracy.toStringAsFixed(2) ?? 0} m',
-              style: Theme.of(context)
-                  .textTheme
-                  .headline5
-                  ?.copyWith(color: _accuracyWorse ? Colors.red : Colors.green),
+              'Accuracy:${_oldAccuracy.toStringAsFixed(2)} -> ${_position?.accuracy.toStringAsFixed(2) ?? 0} m',
+              style: Theme.of(context).textTheme.headline6?.copyWith(
+                  color: _oldAccuracy < (_position?.accuracy ?? 0)
+                      ? Colors.red
+                      : Colors.green),
             ),
             Text(
               'Update Time: ${DateFormat("HH:mm:ss").format(_position?.timestamp?.toLocal() ?? DateTime(0))}',
