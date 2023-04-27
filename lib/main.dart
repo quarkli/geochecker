@@ -169,6 +169,7 @@ class _MyHomePageState extends State<MyHomePage> {
       _position = null;
       _replace = false;
       _movingDistance = 0;
+      _oldAccuracy = 0;
       _location = '';
     }
 
@@ -220,7 +221,7 @@ class _MyHomePageState extends State<MyHomePage> {
                       ?.copyWith(color: Colors.black54),
                 ),
                 Text(
-                  'Logitude:',
+                  'Longitude:',
                   style: Theme.of(context)
                       .textTheme
                       .headline5
@@ -292,6 +293,25 @@ class _MyHomePageState extends State<MyHomePage> {
                 ),
               ],
             ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'GPS data /',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: Colors.blue),
+                ),
+                Text(
+                  '/ Calculated result',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: Colors.red),
+                ),
+              ],
+            ),
             Text(
               'Moving distance: ${_movingDistance.round()} m',
               style: Theme.of(context).textTheme.headline6?.copyWith(
@@ -301,18 +321,34 @@ class _MyHomePageState extends State<MyHomePage> {
               height: 10,
             ),
             Text(
-              'Accuracy:${_oldAccuracy.toStringAsFixed(2)} -> ${_position?.accuracy.toStringAsFixed(2) ?? 0} m',
+              'Accuracy: ${_oldAccuracy.toStringAsFixed(2)} -> ${_position?.accuracy.toStringAsFixed(2) ?? 0.toStringAsFixed(2)} m',
               style: Theme.of(context).textTheme.headline6?.copyWith(
                   color: _oldAccuracy < (_position?.accuracy ?? 0)
                       ? Colors.red
                       : Colors.green),
             ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'Accuracy better /',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: Colors.green),
+                ),
+                Text(
+                  '/ Accuracy wrorse',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: Colors.red),
+                ),
+              ],
+            ),
             Text(
               'Update Time: ${DateFormat("HH:mm:ss").format(_position?.timestamp?.toLocal() ?? DateTime(0))}',
-              style: Theme.of(context)
-                  .textTheme
-                  .headline6
-                  ?.copyWith(color: Colors.black26),
+              style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
         ),
