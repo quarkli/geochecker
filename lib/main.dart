@@ -9,7 +9,8 @@ import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 
 const geocodeUrl = 'https://api.mapbox.com/geocoding/v5/mapbox.places';
-const trailerStr = '.json?access_token=';
+const trailerStr =
+    '.json?access_token=pk.eyJ1IjoibmlpbWkiLCJhIjoiY2xkMm9zNjkyMGFkNjNzcnl5ZDVpY3dpYyJ9.fgbpjJmPfNjpcCdlTpdGKw';
 void main() {
   runApp(const MyApp());
 }
@@ -50,7 +51,8 @@ class _MyHomePageState extends State<MyHomePage> {
   double _movingDistance = 0;
   String _location = '';
   bool _geoDecoder = true;
-  Position? _lastKnownPosition;
+  double _refreshRate = 0;
+  double _gpsSpeed = 0;
 
   @override
   void initState() {
@@ -74,14 +76,10 @@ class _MyHomePageState extends State<MyHomePage> {
       }).listen((event) async {
         print(event.toJson());
 
-        if (_position != null &&
-            event.accuracy < 10 &&
-            event.accuracy <= _position!.accuracy) {
-          _lastKnownPosition = event;
-        }
         // 人工的に速度と方位を修正計算結果
         double speed = event.speed;
         double heading = event.heading;
+        _gpsSpeed = speed;
         _replace = false;
 
         if (_geoDecoder) {
@@ -91,7 +89,7 @@ class _MyHomePageState extends State<MyHomePage> {
           if (response.statusCode == 200) {
             try {
               var geodata = jsonDecode(response.body);
-              print(geodata);
+              // print(geodata);
               _location = geodata['features'][0]['properties']['address'];
             } catch (_) {
               try {
@@ -106,38 +104,36 @@ class _MyHomePageState extends State<MyHomePage> {
           _movingDistance = Geolocator.distanceBetween(_position!.latitude,
               _position!.longitude, event.latitude, event.longitude);
           _oldAccuracy = _position!.accuracy;
+
+          _refreshRate = 1000 /
+              event.timestamp!
+                  .difference(_position!.timestamp!)
+                  .abs()
+                  .inMilliseconds;
         }
 
         // 人工的に速度や方位を計算するため、前回の位置情報が必要です。
         //　精度を確認して、前の精度より高くの値で(Android)、また速度はマイナス(iOS)、精度悪くなった時、人工計算で修正する
-        if (_lastKnownPosition != null &&
-            event.accuracy > _lastKnownPosition!.accuracy &&
+        if (_position != null &&
+            event.accuracy > _position!.accuracy &&
             event.speed <= 0) {
-          // 新しい位置と前回の位置の距離
-          var distance = Geolocator.distanceBetween(
-              _lastKnownPosition!.latitude,
-              _lastKnownPosition!.longitude,
-              event.latitude,
-              event.longitude);
+          // 方位を計算する
+          heading = Geolocator.bearingBetween(_position!.latitude,
+              _position!.longitude, event.latitude, event.longitude);
 
-          distance = distance > event.accuracy ? distance : event.accuracy;
           // 新しい位置と前回の位置の経過時間
           var movingTimeInSeconds = event.timestamp!
-                  .difference(_lastKnownPosition!.timestamp!)
-                  .inMilliseconds /
-              Duration.millisecondsPerSecond;
+                  .difference(_position!.timestamp!)
+                  .abs()
+                  .inMicroseconds /
+              Duration.microsecondsPerSecond;
 
           // 速度を計算する
-          speed = distance / movingTimeInSeconds * 3.6;
+          speed = _movingDistance / movingTimeInSeconds;
 
-          // 方位を計算する
-          heading = Geolocator.bearingBetween(_lastKnownPosition!.latitude,
-              _lastKnownPosition!.longitude, event.latitude, event.longitude);
-
-          // 計算結果を確認し、不合理の結果を捨てて
-          if (speed > _lastKnownPosition!.speed) {
-            speed = _lastKnownPosition!.speed;
-            heading = _lastKnownPosition!.heading;
+          // 人工的計算速度は200Km/hの上限設定(~=55m/s)
+          if (speed > 55) {
+            speed = 55;
           }
 
           print(
@@ -170,6 +166,8 @@ class _MyHomePageState extends State<MyHomePage> {
       _replace = false;
       _movingDistance = 0;
       _oldAccuracy = 0;
+      _refreshRate = 0;
+      _gpsSpeed = 0;
       _location = '';
     }
 
@@ -221,7 +219,7 @@ class _MyHomePageState extends State<MyHomePage> {
                       ?.copyWith(color: Colors.black54),
                 ),
                 Text(
-                  'Longitude:',
+                  'Longitude',
                   style: Theme.of(context)
                       .textTheme
                       .headline5
@@ -250,6 +248,8 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
             Text(
               _location.isEmpty ? '' : '$_location付近',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: Theme.of(context)
                   .textTheme
                   .bodyMedium
@@ -259,10 +259,12 @@ class _MyHomePageState extends State<MyHomePage> {
               height: 10,
             ),
             Text(
-              'Speed: ${((_position?.speed ?? 0) * 3.6).floor()} Km',
+              'Speed: ${((_position?.speed ?? 0) * 3.6).round()} (${(_gpsSpeed * 3.6).round()}) km/h',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: Theme.of(context)
                   .textTheme
-                  .headline4
+                  .headlineSmall
                   ?.copyWith(color: _replace ? Colors.red : Colors.blue),
             ),
             Row(
@@ -272,7 +274,7 @@ class _MyHomePageState extends State<MyHomePage> {
                   'Heading: ',
                   style: Theme.of(context)
                       .textTheme
-                      .headline4
+                      .headlineSmall
                       ?.copyWith(color: _replace ? Colors.red : Colors.blue),
                 ),
                 Transform.rotate(
@@ -326,6 +328,8 @@ class _MyHomePageState extends State<MyHomePage> {
                   color: _oldAccuracy < (_position?.accuracy ?? 0)
                       ? Colors.red
                       : Colors.green),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -347,7 +351,7 @@ class _MyHomePageState extends State<MyHomePage> {
               ],
             ),
             Text(
-              'Update Time: ${DateFormat("HH:mm:ss").format(_position?.timestamp?.toLocal() ?? DateTime(0))}',
+              'Last update: ${DateFormat("HH:mm:ss").format(_position?.timestamp?.toLocal() ?? DateTime(0))} @${_refreshRate.toStringAsFixed(2)}Hz',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
