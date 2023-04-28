@@ -9,8 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 
 const geocodeUrl = 'https://api.mapbox.com/geocoding/v5/mapbox.places';
-const trailerStr =
-    '.json?access_token=pk.eyJ1IjoibmlpbWkiLCJhIjoiY2xkMm9zNjkyMGFkNjNzcnl5ZDVpY3dpYyJ9.fgbpjJmPfNjpcCdlTpdGKw';
+const trailerStr = '.json?access_token=';
 void main() {
   runApp(const MyApp());
 }
