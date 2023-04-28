@@ -48,6 +48,7 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _replace = false;
   double _oldAccuracy = 0;
   double _movingDistance = 0;
+  double _movingPeriod = 0;
   String _location = '';
   bool _geoDecoder = true;
   double _refreshRate = 0;
@@ -75,11 +76,57 @@ class _MyHomePageState extends State<MyHomePage> {
       }).listen((event) async {
         print(event.toJson());
 
-        // 人工的に速度と方位を修正計算結果
-        double speed = event.speed;
+        double speed = _gpsSpeed = (event.speed * 10).roundToDouble() / 10.0;
         double heading = event.heading;
-        _gpsSpeed = speed;
-        _replace = false;
+
+        if (_position != null) {
+          _oldAccuracy = _position!.accuracy;
+
+          double updatePeriod = event.timestamp!
+                  .difference(_position!.timestamp!)
+                  .abs()
+                  .inMicroseconds /
+              Duration.microsecondsPerSecond;
+          _refreshRate = 1 / updatePeriod;
+
+          if (event.speed < 0 && updatePeriod < 2) {
+            return;
+          } else {
+            if ((event.accuracy > _position!.accuracy ||
+                    event.accuracy > 200) &&
+                speed <= 0) {
+              heading = Geolocator.bearingBetween(_position!.latitude,
+                  _position!.longitude, event.latitude, event.longitude);
+
+              double positionDistance = Geolocator.distanceBetween(
+                  _position!.latitude,
+                  _position!.longitude,
+                  event.latitude,
+                  event.longitude);
+
+              if ((positionDistance * 10 / event.accuracy).round() > 0) {
+                positionDistance = positionDistance / event.accuracy;
+              }
+
+              if (_movingDistance == 0) {
+                _movingDistance += positionDistance;
+                _movingPeriod += updatePeriod;
+              } else {
+                _movingDistance += positionDistance;
+                _movingPeriod += updatePeriod;
+                speed = _movingDistance / _movingPeriod;
+              }
+
+              _replace = true;
+
+              print('Replace speed ($speed) and heading ($heading).');
+            } else {
+              _replace = false;
+              _movingDistance = 0;
+              _movingPeriod = 0;
+            }
+          }
+        }
 
         if (_geoDecoder) {
           final response = await http.get(Uri.parse(
@@ -97,48 +144,6 @@ class _MyHomePageState extends State<MyHomePage> {
               } catch (_) {}
             }
           }
-        }
-
-        if (_position != null) {
-          _movingDistance = Geolocator.distanceBetween(_position!.latitude,
-              _position!.longitude, event.latitude, event.longitude);
-          _oldAccuracy = _position!.accuracy;
-
-          _refreshRate = 1000 /
-              event.timestamp!
-                  .difference(_position!.timestamp!)
-                  .abs()
-                  .inMilliseconds;
-        }
-
-        // 人工的に速度や方位を計算するため、前回の位置情報が必要です。
-        //　精度を確認して、前の精度より高くの値で(Android)、また速度はマイナス(iOS)、精度悪くなった時、人工計算で修正する
-        if (_position != null &&
-            event.accuracy > _position!.accuracy &&
-            event.speed <= 0) {
-          // 方位を計算する
-          heading = Geolocator.bearingBetween(_position!.latitude,
-              _position!.longitude, event.latitude, event.longitude);
-
-          // 新しい位置と前回の位置の経過時間
-          var movingTimeInSeconds = event.timestamp!
-                  .difference(_position!.timestamp!)
-                  .abs()
-                  .inMicroseconds /
-              Duration.microsecondsPerSecond;
-
-          // 速度を計算する
-          speed = _movingDistance / movingTimeInSeconds;
-
-          // 人工的計算速度は200Km/hの上限設定(~=55m/s)
-          if (speed > 55) {
-            speed = 55;
-          }
-
-          print(
-              'GPS signal might be lost, using artificial calculation speed ($speed) and heading ($heading) instead.');
-
-          _replace = true;
         }
 
         if (speed < 0) {
@@ -164,6 +169,7 @@ class _MyHomePageState extends State<MyHomePage> {
       _position = null;
       _replace = false;
       _movingDistance = 0;
+      _movingPeriod = 0;
       _oldAccuracy = 0;
       _refreshRate = 0;
       _gpsSpeed = 0;
@@ -350,7 +356,7 @@ class _MyHomePageState extends State<MyHomePage> {
               ],
             ),
             Text(
-              'Last update: ${DateFormat("HH:mm:ss").format(_position?.timestamp?.toLocal() ?? DateTime(0))} @${_refreshRate.toStringAsFixed(2)}Hz',
+              'Last update: ${DateFormat("HH:mm:ss").format(_position?.timestamp?.toLocal() ?? DateTime(0))} @${_refreshRate.toStringAsFixed(3)}Hz',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
