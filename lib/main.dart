@@ -9,7 +9,8 @@ import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 
 const geocodeUrl = 'https://api.mapbox.com/geocoding/v5/mapbox.places';
-const trailerStr = '.json?access_token=';
+const trailerStr =
+    '.json?access_token=pk.eyJ1IjoibmlpbWkiLCJhIjoiY2xkMm9zNjkyMGFkNjNzcnl5ZDVpY3dpYyJ9.fgbpjJmPfNjpcCdlTpdGKw';
 void main() {
   runApp(const MyApp());
 }
@@ -53,6 +54,7 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _geoDecoder = true;
   double _refreshRate = 0;
   double _gpsSpeed = 0;
+  Timer? _positionCheker;
 
   @override
   void initState() {
@@ -74,95 +76,17 @@ class _MyHomePageState extends State<MyHomePage> {
       _streamSubscription = positionStream.handleError((error) {
         print(error);
       }).listen((event) async {
-        print(event.toJson());
-
-        double speed = _gpsSpeed = (event.speed * 10).roundToDouble() / 10.0;
-        double heading = event.heading;
-
-        if (_position != null) {
-          _oldAccuracy = _position!.accuracy;
-
-          double updatePeriod = event.timestamp!
-                  .difference(_position!.timestamp!)
-                  .abs()
-                  .inMicroseconds /
-              Duration.microsecondsPerSecond;
-          _refreshRate = 1 / updatePeriod;
-
-          if (event.speed < 0 && updatePeriod < 2) {
-            return;
-          } else {
-            if ((event.accuracy > _position!.accuracy ||
-                    event.accuracy > 200) &&
-                speed <= 0) {
-              heading = Geolocator.bearingBetween(_position!.latitude,
-                  _position!.longitude, event.latitude, event.longitude);
-
-              double positionDistance = Geolocator.distanceBetween(
-                  _position!.latitude,
-                  _position!.longitude,
-                  event.latitude,
-                  event.longitude);
-
-              if ((positionDistance * 10 / event.accuracy).round() > 0) {
-                positionDistance = positionDistance / event.accuracy;
-              }
-
-              if (_movingDistance == 0) {
-                _movingDistance += positionDistance;
-                _movingPeriod += updatePeriod;
-              } else {
-                _movingDistance += positionDistance;
-                _movingPeriod += updatePeriod;
-                speed = _movingDistance / _movingPeriod;
-              }
-
-              _replace = true;
-
-              print('Replace speed ($speed) and heading ($heading).');
-            } else {
-              _replace = false;
-              _movingDistance = 0;
-              _movingPeriod = 0;
-            }
-          }
+        _positionCheker?.cancel();
+        _positionCheker = null;
+        _updatePosition(event);
+        if (event.speed < 0) {
+          _positionCheker ??=
+              Timer.periodic(const Duration(seconds: 2), (timer) {
+            GeolocatorPlatform.instance
+                .getCurrentPosition(locationSettings: _locationSettings);
+            print('>>> Pulling position: ${DateTime.now().toLocal()}');
+          });
         }
-
-        if (_geoDecoder) {
-          final response = await http.get(Uri.parse(
-              '$geocodeUrl/${event.longitude},${event.latitude}$trailerStr'));
-
-          if (response.statusCode == 200) {
-            try {
-              var geodata = jsonDecode(response.body);
-              // print(geodata);
-              _location = geodata['features'][0]['properties']['address'];
-            } catch (_) {
-              try {
-                var geodata = jsonDecode(response.body);
-                _location = geodata['features'][0]['text'];
-              } catch (_) {}
-            }
-          }
-        }
-
-        if (speed < 0) {
-          _replace = true;
-        }
-
-        _position = Position(
-            longitude: event.longitude,
-            latitude: event.latitude,
-            timestamp: event.timestamp,
-            accuracy: event.accuracy,
-            altitude: event.altitude,
-            heading: heading < 0 && speed < 0 ? 0 : (heading + 360) % 360,
-            speed: speed < 0 ? 0 : speed,
-            speedAccuracy: event.accuracy,
-            floor: event.floor,
-            isMocked: event.isMocked);
-
-        setState(() {});
       });
     } else {
       _streamSubscription?.cancel();
@@ -175,6 +99,96 @@ class _MyHomePageState extends State<MyHomePage> {
       _gpsSpeed = 0;
       _location = '';
     }
+
+    setState(() {});
+  }
+
+  void _updatePosition(Position event, {DateTime? timestamp}) async {
+    print(event.toJson());
+    double speed = _gpsSpeed = (event.speed * 10).roundToDouble() / 10.0;
+    double heading = event.heading;
+
+    if (_position != null) {
+      _oldAccuracy = _position!.accuracy;
+
+      double updatePeriod = event.timestamp!
+              .difference(timestamp ?? _position!.timestamp!)
+              .abs()
+              .inMicroseconds /
+          Duration.microsecondsPerSecond;
+      _refreshRate = 1 / updatePeriod;
+
+      if (event.speed < 0 && updatePeriod < 2) {
+        return;
+      } else {
+        if ((event.accuracy > _position!.accuracy || event.accuracy > 200) &&
+            speed <= 0) {
+          heading = Geolocator.bearingBetween(_position!.latitude,
+              _position!.longitude, event.latitude, event.longitude);
+
+          if (_movingDistance == 0) {
+            _movingDistance += _position!.speed * updatePeriod;
+            _movingPeriod += updatePeriod;
+          } else {
+            double positionDistance = Geolocator.distanceBetween(
+                _position!.latitude,
+                _position!.longitude,
+                event.latitude,
+                event.longitude);
+
+            if ((positionDistance * 10 / event.accuracy).round() > 0) {
+              positionDistance = positionDistance / event.accuracy;
+            }
+
+            _movingDistance += positionDistance;
+            _movingPeriod += updatePeriod;
+            speed = _movingDistance / _movingPeriod;
+          }
+
+          _replace = true;
+
+          print('Replace speed ($speed) and heading ($heading).');
+        } else {
+          _replace = false;
+          _movingDistance = 0;
+          _movingPeriod = 0;
+        }
+      }
+    }
+
+    if (_geoDecoder) {
+      final response = await http.get(Uri.parse(
+          '$geocodeUrl/${event.longitude},${event.latitude}$trailerStr'));
+
+      if (response.statusCode == 200) {
+        try {
+          var geodata = jsonDecode(response.body);
+          // print(geodata);
+          _location = geodata['features'][0]['properties']['address'];
+        } catch (_) {
+          try {
+            var geodata = jsonDecode(response.body);
+            _location = geodata['features'][0]['text'];
+          } catch (_) {}
+        }
+      }
+    }
+
+    if (speed < 0) {
+      _replace = true;
+    }
+
+    _position = Position(
+        longitude: event.longitude,
+        latitude: event.latitude,
+        timestamp: timestamp ?? event.timestamp,
+        accuracy: event.accuracy,
+        altitude: event.altitude,
+        heading: heading < 0 && speed < 0 ? 0 : (heading + 360) % 360,
+        speed: speed < 0 ? 0 : speed,
+        speedAccuracy: event.accuracy,
+        floor: event.floor,
+        isMocked: event.isMocked);
 
     setState(() {});
   }
