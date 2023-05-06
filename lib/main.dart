@@ -9,8 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 
 const geocodeUrl = 'https://api.mapbox.com/geocoding/v5/mapbox.places';
-const trailerStr =
-    '.json?access_token=';
+const trailerStr = '.json?access_token=';
 void main() {
   runApp(const MyApp());
 }
@@ -134,7 +133,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 ? _position!.speed * updatePeriod
                 : positionDistance > 0
                     ? positionDistance
-                    : 0. 1;
+                    : 0.1;
             _movingPeriod += updatePeriod;
             print('Skip for first distance accumulation');
             return;
