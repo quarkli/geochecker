@@ -10,7 +10,7 @@ import 'package:http/http.dart' as http;
 
 const geocodeUrl = 'https://api.mapbox.com/geocoding/v5/mapbox.places';
 const trailerStr =
-    '.json?access_token=pk.eyJ1IjoibmlpbWkiLCJhIjoiY2xkMm9zNjkyMGFkNjNzcnl5ZDVpY3dpYyJ9.fgbpjJmPfNjpcCdlTpdGKw';
+    '.json?access_token=';
 void main() {
   runApp(const MyApp());
 }
@@ -54,7 +54,6 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _geoDecoder = true;
   double _refreshRate = 0;
   double _gpsSpeed = 0;
-  Timer? _positionCheker;
 
   @override
   void initState() {
@@ -76,16 +75,12 @@ class _MyHomePageState extends State<MyHomePage> {
       _streamSubscription = positionStream.handleError((error) {
         print(error);
       }).listen((event) async {
-        _positionCheker?.cancel();
-        _positionCheker = null;
         _updatePosition(event);
         if (event.speed < 0) {
-          _positionCheker ??=
-              Timer.periodic(const Duration(seconds: 2), (timer) {
+          Future.delayed(Duration.zero, (() {
             GeolocatorPlatform.instance
                 .getCurrentPosition(locationSettings: _locationSettings);
-            print('>>> Pulling position: ${DateTime.now().toLocal()}');
-          });
+          }));
         }
       });
     } else {
@@ -113,33 +108,37 @@ class _MyHomePageState extends State<MyHomePage> {
 
       double updatePeriod = event.timestamp!
               .difference(timestamp ?? _position!.timestamp!)
-              .abs()
-              .inMicroseconds /
-          Duration.microsecondsPerSecond;
+              .inMilliseconds /
+          1000;
       _refreshRate = 1 / updatePeriod;
-
+      print(
+          'Updaate perioad: ${event.timestamp!.toLocal()} - ${_position!.timestamp!.toLocal()} = $updatePeriod');
       if (event.speed < 0 && updatePeriod < 2) {
+        print('Skip for instant update');
         return;
       } else {
-        if ((event.accuracy > _position!.accuracy || event.accuracy > 200) &&
-            speed <= 0) {
+        if (event.accuracy > 200 || speed < 0) {
           heading = Geolocator.bearingBetween(_position!.latitude,
               _position!.longitude, event.latitude, event.longitude);
+          double positionDistance = Geolocator.distanceBetween(
+              _position!.latitude,
+              _position!.longitude,
+              event.latitude,
+              event.longitude);
+          if ((positionDistance * 10 / event.accuracy).round() > 0) {
+            positionDistance = positionDistance / event.accuracy;
+          }
 
           if (_movingDistance == 0) {
-            _movingDistance += _position!.speed * updatePeriod;
+            _movingDistance += _position!.speed > 0
+                ? _position!.speed * updatePeriod
+                : positionDistance > 0
+                    ? positionDistance
+                    : 0. 1;
             _movingPeriod += updatePeriod;
+            print('Skip for first distance accumulation');
+            return;
           } else {
-            double positionDistance = Geolocator.distanceBetween(
-                _position!.latitude,
-                _position!.longitude,
-                event.latitude,
-                event.longitude);
-
-            if ((positionDistance * 10 / event.accuracy).round() > 0) {
-              positionDistance = positionDistance / event.accuracy;
-            }
-
             _movingDistance += positionDistance;
             _movingPeriod += updatePeriod;
             speed = _movingDistance / _movingPeriod;
@@ -157,8 +156,10 @@ class _MyHomePageState extends State<MyHomePage> {
     }
 
     if (_geoDecoder) {
-      final response = await http.get(Uri.parse(
-          '$geocodeUrl/${event.longitude},${event.latitude}$trailerStr'));
+      final response = await http.get(
+          Uri.parse(
+              '$geocodeUrl/${event.longitude},${event.latitude}$trailerStr'),
+          headers: {}).timeout(const Duration(seconds: 2));
 
       if (response.statusCode == 200) {
         try {
